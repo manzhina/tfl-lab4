@@ -18,7 +18,7 @@ def load_tests(filename):
         elif line.startswith('-:'):
             current_mode = 'minus'
             continue
-        
+
         if current_mode == 'plus':
             positive_tests.append(line)
         elif current_mode == 'minus':
@@ -28,8 +28,8 @@ def load_tests(filename):
 
 def run_test(expression, should_be_correct):
     """
-    Запускает программу regex_cpp_parser, подавая на стандартный ввод строку expression.
-    Возвращает True, если результат (корректно / ошибка) совпал с ожиданиями, иначе False.
+    Runs the regex_cpp_parser program, providing the expression string as standard input.
+    Returns True if the result (correct/error) matches the expectations, otherwise False.
     """
     proc = subprocess.run(["./regex_cpp_parser"],
                           input=expression.encode('utf-8'),
@@ -38,7 +38,7 @@ def run_test(expression, should_be_correct):
     stdout_text = proc.stdout.decode('utf-8', errors='replace')
     stderr_text = proc.stderr.decode('utf-8', errors='replace')
 
-    if "Ошибка:" in stdout_text or "Ошибка:" in stderr_text:
+    if "Error:" in stdout_text or "Error:" in stderr_text:
         is_correct = False
     else:
         is_correct = True
@@ -51,21 +51,21 @@ def main():
     total_tests = len(positive_tests) + len(negative_tests)
     passed_tests = 0
 
-    print("==== Проверяем выражения, которые должны быть корректными ====")
+    print("==== Testing expressions that should be valid ====")
     for expr in positive_tests:
         result = run_test(expr, True)
         print(f"Test: {expr} -> {'OK' if result else 'FAIL'}")
         if result:
             passed_tests += 1
 
-    print("\n==== Проверяем выражения, которые должны выдавать ошибку ====")
+    print("\n==== Testing expressions that should produce an error ====")
     for expr in negative_tests:
         result = run_test(expr, False)
         print(f"Test: {expr} -> {'OK' if result else 'FAIL'}")
         if result:
             passed_tests += 1
 
-    print(f"\nИтого пройдено {passed_tests} из {total_tests} тестов.")
+    print(f"\nTotal passed {passed_tests} out of {total_tests} tests.")
 
 if __name__ == "__main__":
     main()

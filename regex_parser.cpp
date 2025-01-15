@@ -76,7 +76,7 @@ public:
                             advance();
                             tokens.emplace_back(TokenType::EXPR_REF_OPEN, '\0', val);
                         } else {
-                            throw RegexParserError("Некорректный синтаксис после '(?'");
+                            throw RegexParserError("Invalid syntax after '(?'");
                         }
                     } else {
                         tokens.emplace_back(TokenType::CAP_OPEN);
@@ -100,7 +100,7 @@ public:
                         tokens.emplace_back(TokenType::CHAR, ch);
                         advance();
                     } else {
-                        throw RegexParserError("Неизвестный символ: " + std::string(1, ch));
+                        throw RegexParserError("Unknown character: " + std::string(1, ch));
                     }
                     break;
             }
@@ -185,7 +185,7 @@ public:
     std::unique_ptr<Node> parse() {
         auto root = parse_alternation();
         if (current_token()) {
-            throw RegexParserError("Лишние символы после корректного выражения");
+            throw RegexParserError("Extra characters after a valid expression");
         }
         // Проверяем ссылки
         std::set<int> defined;
@@ -205,9 +205,9 @@ private:
     }
     const Token* eat(TokenType ttype) {
         auto tok = current_token();
-        if (!tok) throw RegexParserError("Неожиданный конец выражения");
+        if (!tok) throw RegexParserError("Unexpected end of expression");
         if (tok->ttype != ttype) {
-            throw RegexParserError("Ошибка синтаксиса: ожидался другой токен");
+            throw RegexParserError("Syntax error: expected a different token");
         }
         ++pos_;
         return tok;
@@ -224,7 +224,7 @@ private:
                 current_token()->ttype == TokenType::CLOSE ||
                 current_token()->ttype == TokenType::ALT)
             {
-                throw RegexParserError("Пустая альтернатива запрещена");
+                throw RegexParserError("Empty alternation is not allowed");
             }
             branches.push_back(parse_concatenation());
         }
@@ -258,14 +258,14 @@ private:
     // parse_base -> '(' parse_alternation ')' | (?:...) | (?=...) | (?N) | CHAR
     std::unique_ptr<Node> parse_base() {
         auto tok = current_token();
-        if (!tok) throw RegexParserError("Неожиданный конец при ожидании base-выражения");
+        if (!tok) throw RegexParserError("Unexpected end when expecting a base expression");
 
         switch (tok->ttype) {
         case TokenType::CAP_OPEN:
         {
             eat(TokenType::CAP_OPEN);
             if (++group_count_ > max_groups_) {
-                throw RegexParserError("Превышено число групп захвата (>9)");
+                throw RegexParserError("Exceeded the number of capture groups (>9)");
             }
             int gid = group_count_;
             auto sub = parse_alternation();
@@ -284,7 +284,7 @@ private:
         case TokenType::LOOKAHEAD_OPEN:
         {
             if (in_lookahead_) {
-                throw RegexParserError("Вложенные опережающие проверки запрещены");
+                throw RegexParserError("Nested lookaheads are not allowed");
             }
             eat(TokenType::LOOKAHEAD_OPEN);
             bool old = in_lookahead_;
@@ -308,7 +308,7 @@ private:
             return std::make_unique<CharNode>(c);
         }
         default:
-            throw RegexParserError("Некорректный токен в parse_base()");
+            throw RegexParserError("Invalid token in parse_base()");
         }
     }
 
@@ -325,7 +325,7 @@ private:
             // Допустим forward-ref, но ref_id не может выходить за границы [1..9].
             // Можно проверять также <= group_count_, но в условии разрешаются рекурсивные forward-ссылки.
             if (en->ref_id <= 0 || en->ref_id > max_groups_) {
-                throw RegexParserError("Ссылка на несуществующую группу: " + std::to_string(en->ref_id));
+                throw RegexParserError("Reference to non-existent group: " + std::to_string(en->ref_id));
             }
             return defined;
         }
@@ -362,7 +362,7 @@ private:
             }
             return uni;
         }
-        throw RegexParserError("Неизвестный тип узла при проверке ссылок.");
+        throw RegexParserError("Unknown node type during reference checking.");
     }
 
     // Проверка отсутствия групп захвата и lookahead внутри lookahead
@@ -370,12 +370,12 @@ private:
         if (!node) return;
         if (auto gn = dynamic_cast<const GroupNode*>(node)) {
             if (insideLook) {
-                throw RegexParserError("Внутри lookahead нельзя использовать захватывающие группы");
+                throw RegexParserError("Capture groups cannot be used inside lookaheads");
             }
         }
         if (auto ln = dynamic_cast<const LookaheadNode*>(node)) {
             if (insideLook) {
-                throw RegexParserError("Вложенные opережающие проверки запрещены");
+                throw RegexParserError("Nested lookaheads are not allowed");
             }
         }
         // Рекурсивный обход
@@ -434,7 +434,7 @@ private:
         std::map<std::string, std::vector<std::vector<std::string>>>& rules,
         const std::string& start_symbol)
     {
-        if (!node) throw RegexParserError("node_to_cfg: пустой узел");
+        if (!node) throw RegexParserError("node_to_cfg: empty node");
 
         // Переходим к конкретным узлам
         if (auto chn = dynamic_cast<const CharNode*>(node)) {
@@ -495,13 +495,13 @@ private:
             if (group_nonterm_.find(rid) == group_nonterm_.end()) {
                 group_nonterm_[rid] = "G" + std::to_string(rid);
                 if (groups_ast_.find(rid) == groups_ast_.end()) {
-                    throw RegexParserError("Ссылка на несуществующую группу " + std::to_string(rid));
+                    throw RegexParserError("Reference to non-existent group " + std::to_string(rid));
                 }
                 node_to_cfg(groups_ast_.at(rid), rules, group_nonterm_[rid]);
             }
             return group_nonterm_[rid];
         }
-        throw RegexParserError("node_to_cfg: неизвестный тип узла AST");
+        throw RegexParserError("node_to_cfg: unknown AST node type");
     }
 
     std::string fresh_nt(const std::string& prefix) {
@@ -531,7 +531,7 @@ int main() {
         std::getline(std::cin, text);
 
         if (text.empty()) {
-            throw RegexParserError("Пустая строка ввода");
+            throw RegexParserError("Input string is empty");
         }
         // Лексер
         Lexer lexer(text);
@@ -545,9 +545,9 @@ int main() {
         CFGBuilder builder(parser.groups_ast);
         auto [start_nt, rules] = builder.build(ast.get());
 
-        std::cout << "Выражение корректно и удовлетворяет ограничениям.\n";
-        std::cout << "Построенная КС-грамматика (каркас):\n";
-        std::cout << "Начальный нетерминал: " << start_nt << "\n";
+        std::cout << "The expression is valid and meets the constraints.\n";
+        std::cout << "Constructed CFG (skeleton):\n";
+        std::cout << "Start non-terminal: " << start_nt << "\n";
 
         for (auto& [nt, rhss] : rules) {
             for (auto& rhs : rhss) {
@@ -571,13 +571,13 @@ int main() {
         }
         */
 
-        std::cout << "Готово.\n";
+        std::cout << "Done.\n";
 
     } catch (const RegexParserError& e) {
-        std::cerr << "Ошибка: " << e.what() << std::endl;
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1; 
     } catch (const std::exception& e) {
-        std::cerr << "Стандартное исключение: " << e.what() << std::endl;
+        std::cerr << "Standard exception: " << e.what() << std::endl;
         return 1;
     }
     return 0;
