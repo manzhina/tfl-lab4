@@ -417,10 +417,9 @@ public:
         // Регистрируем группы, если были forward-ссылки
         for (auto& [gid, nd] : groups_ast_) {
             if (group_nonterm_.find(gid) == group_nonterm_.end()) {
-                std::string nt = "G" + std::to_string(gid);
-                group_nonterm_[gid] = nt;
-                node_to_cfg(nd, rules, nt);
+                group_nonterm_[gid] = "G" + std::to_string(gid);
             }
+            node_to_cfg(nd, rules, group_nonterm_[gid]);
         }
         return {start, rules};
     }
@@ -428,6 +427,11 @@ public:
 private:
     const std::map<int, Node*>& groups_ast_;
     std::map<int, std::string> group_nonterm_;
+    
+    // Кэширование для оптимизации
+    std::unordered_map<const Node*, std::string> node_cache_;
+    std::set<std::string> built_nt_;
+    
     int noncap_idx_, star_idx_;
 
     std::string node_to_cfg(const Node* node,
@@ -436,92 +440,101 @@ private:
     {
         if (!node) throw RegexParserError("node_to_cfg: empty node");
 
-        // Переходим к конкретным узлам
-        if (auto chn = dynamic_cast<const CharNode*>(node)) {
-            std::string nt = start_symbol.empty() ? fresh_nt("CHAR") : start_symbol;
-            rules[nt].push_back({std::string(1, chn->ch)});
+        // Проверяем кэш
+        auto it = node_cache_.find(node);
+        if (it != node_cache_.end()) {
+            return it->second;
+        }
+
+        // Определяем имя нетерминала
+        std::string nt = !start_symbol.empty() ? start_symbol : 
+            (dynamic_cast<const GroupNode*>(node) ? 
+                (group_nonterm_[dynamic_cast<const GroupNode*>(node)->group_id] = 
+                    "G" + std::to_string(dynamic_cast<const GroupNode*>(node)->group_id)) : 
+                fresh_nt(node));
+
+        // Кэшируем результат
+        node_cache_[node] = nt;
+        
+        // Если правила уже построены, возвращаем нетерминал
+        if (built_nt_.count(nt)) {
             return nt;
         }
-        if (auto gn = dynamic_cast<const GroupNode*>(node)) {
-            // G<id> -> ...
-            if (group_nonterm_.find(gn->group_id) == group_nonterm_.end()) {
-                group_nonterm_[gn->group_id] = "G" + std::to_string(gn->group_id);
-            }
-            std::string nt = group_nonterm_[gn->group_id];
+        built_nt_.insert(nt);
+
+        if (auto chn = dynamic_cast<const CharNode*>(node)) {
+            rules[nt].push_back({std::string(1, chn->ch)});
+        }
+        else if (auto gn = dynamic_cast<const GroupNode*>(node)) {
             std::string sub_nt = node_to_cfg(gn->node.get(), rules, "");
             rules[nt].push_back({sub_nt});
-            return nt;
         }
-        if (auto ncg = dynamic_cast<const NonCapGroupNode*>(node)) {
-            std::string nt = start_symbol.empty() ? fresh_nt("N") : start_symbol;
+        else if (auto ncg = dynamic_cast<const NonCapGroupNode*>(node)) {
             std::string sub_nt = node_to_cfg(ncg->node.get(), rules, "");
             rules[nt].push_back({sub_nt});
-            return nt;
         }
-        if (auto ln = dynamic_cast<const LookaheadNode*>(node)) {
-            // lookahead -> ε
-            std::string nt = start_symbol.empty() ? fresh_nt("LA") : start_symbol;
+        else if (auto ln = dynamic_cast<const LookaheadNode*>(node)) {
             rules[nt].push_back({});
-            return nt;
         }
-        if (auto cn = dynamic_cast<const ConcatNode*>(node)) {
-            std::string nt = start_symbol.empty() ? fresh_nt("C") : start_symbol;
+        else if (auto cn = dynamic_cast<const ConcatNode*>(node)) {
             std::vector<std::string> seq;
             for (auto& ch : cn->nodes) {
                 seq.push_back(node_to_cfg(ch.get(), rules, ""));
             }
             rules[nt].push_back(seq);
-            return nt;
         }
-        if (auto an = dynamic_cast<const AltNode*>(node)) {
-            std::string nt = start_symbol.empty() ? fresh_nt("A") : start_symbol;
+        else if (auto an = dynamic_cast<const AltNode*>(node)) {
             for (auto& br : an->branches) {
                 std::string br_nt = node_to_cfg(br.get(), rules, "");
                 rules[nt].push_back({br_nt});
             }
-            return nt;
         }
-        if (auto sn = dynamic_cast<const StarNode*>(node)) {
-            std::string nt = start_symbol.empty() ? fresh_nt("R") : start_symbol;
+        else if (auto sn = dynamic_cast<const StarNode*>(node)) {
             std::string sub_nt = node_to_cfg(sn->node.get(), rules, "");
-            // R -> ε | R sub_nt
             rules[nt].push_back({});
             rules[nt].push_back({nt, sub_nt});
-            return nt;
         }
-        if (auto erf = dynamic_cast<const ExprRefNode*>(node)) {
-            // (?N)
+        else if (auto erf = dynamic_cast<const ExprRefNode*>(node)) {
             int rid = erf->ref_id;
             if (group_nonterm_.find(rid) == group_nonterm_.end()) {
                 group_nonterm_[rid] = "G" + std::to_string(rid);
-                if (groups_ast_.find(rid) == groups_ast_.end()) {
-                    throw RegexParserError("Reference to non-existent group " + std::to_string(rid));
-                }
-                node_to_cfg(groups_ast_.at(rid), rules, group_nonterm_[rid]);
             }
+            if (groups_ast_.find(rid) == groups_ast_.end()) {
+                throw RegexParserError("Reference to non-existent group " + std::to_string(rid));
+            }
+            node_to_cfg(groups_ast_.at(rid), rules, group_nonterm_[rid]);
             return group_nonterm_[rid];
         }
-        throw RegexParserError("node_to_cfg: unknown AST node type");
+        else {
+            throw RegexParserError("node_to_cfg: unknown AST node type");
+        }
+        return nt;
     }
 
-    std::string fresh_nt(const std::string& prefix) {
-        // Создаём разные счётчики для разных видов нетерминалов
+    // Генерация имени нетерминала по типу узла
+    std::string fresh_nt(const Node* node) {
         static int la_count = 1, c_count = 1, a_count = 1, char_count = 1;
-        if (prefix == "N") {
-            return "N" + std::to_string(noncap_idx_++);
-        } else if (prefix == "R") {
-            return "R" + std::to_string(star_idx_++);
-        } else if (prefix == "LA") {
+        
+        if (dynamic_cast<const LookaheadNode*>(node)) {
             return "LA" + std::to_string(la_count++);
-        } else if (prefix == "C") {
+        }
+        else if (dynamic_cast<const ConcatNode*>(node)) {
             return "C" + std::to_string(c_count++);
-        } else if (prefix == "A") {
+        }
+        else if (dynamic_cast<const AltNode*>(node)) {
             return "A" + std::to_string(a_count++);
-        } else if (prefix == "CHAR") {
+        }
+        else if (dynamic_cast<const CharNode*>(node)) {
             return "CHAR" + std::to_string(char_count++);
         }
+        else if (dynamic_cast<const NonCapGroupNode*>(node)) {
+            return "N" + std::to_string(noncap_idx_++);
+        }
+        else if (dynamic_cast<const StarNode*>(node)) {
+            return "R" + std::to_string(star_idx_++);
+        }
         static int generic_idx = 1;
-        return prefix + std::to_string(generic_idx++);
+        return "X" + std::to_string(generic_idx++);
     }
 };
 
