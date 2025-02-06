@@ -512,32 +512,51 @@ private:
         return nt;
     }
 
-    // Генерация имени нетерминала по типу узла
     std::string fresh_nt(const Node* node) {
         static int la_count = 1, c_count = 1, a_count = 1, char_count = 1;
         
+        // Для lookahead
         if (dynamic_cast<const LookaheadNode*>(node)) {
             return "LA" + std::to_string(la_count++);
         }
+        // Для конкатенации
         else if (dynamic_cast<const ConcatNode*>(node)) {
             return "C" + std::to_string(c_count++);
         }
+        // Для альтернатив
         else if (dynamic_cast<const AltNode*>(node)) {
             return "A" + std::to_string(a_count++);
         }
-        else if (dynamic_cast<const CharNode*>(node)) {
-            return "CHAR" + std::to_string(char_count++);
+        // Для одиночного символа
+        else if (auto chn = dynamic_cast<const CharNode*>(node)) {
+            // Используем кэш имён для каждого символа
+            static std::map<char, std::string> char_map;
+            char c = chn->ch;
+            // Если уже есть нетерминал для данного символа, возвращаем его
+            auto it = char_map.find(c);
+            if (it != char_map.end()) {
+                return it->second;
+            } else {
+                // Иначе генерируем новый нетерминал, запоминаем и возвращаем
+                std::string newNt = "CHAR" + std::to_string(char_count++);
+                char_map[c] = newNt;
+                return newNt;
+            }
         }
+        // Для незахватывающих групп
         else if (dynamic_cast<const NonCapGroupNode*>(node)) {
+            static int noncap_idx_ = 1; 
             return "N" + std::to_string(noncap_idx_++);
         }
+        // Для звёздочки
         else if (dynamic_cast<const StarNode*>(node)) {
+            static int star_idx_ = 1; 
             return "R" + std::to_string(star_idx_++);
         }
+        // На всякий случай универсальный вариант
         static int generic_idx = 1;
         return "X" + std::to_string(generic_idx++);
     }
-};
 
 int main() {
     try {
