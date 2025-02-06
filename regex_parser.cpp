@@ -6,6 +6,7 @@
 #include <cctype>
 #include <map>
 #include <set>
+#include <unordered_map>
 
 class RegexParserError : public std::runtime_error {
 public:
