@@ -557,6 +557,7 @@ private:
         static int generic_idx = 1;
         return "X" + std::to_string(generic_idx++);
     }
+};
 
 int main() {
     try {
